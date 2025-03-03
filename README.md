@@ -8,7 +8,6 @@ A Cobalt Strike BOF and DB decrypter script to retrieve the WhatsApp DB decrypti
 ## Requirements
 - A Cobalt Strike beacon on a compromised host
 - python3 on PATH
-- Python packages (which I haven't kept track of, requirements.txt to come). Please ensure you have the packages required by first_decrypt.py and second_decrypt.py before running the BOF.
 
 ## Build Info
 
